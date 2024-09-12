@@ -16,6 +16,65 @@ pip install outlines@git+https://github.com/lapp0/outlines.git@openai-structured
 pip install git+https://github.com/DavidMChan/clair-a.git
 ```
 
+Next, you need to patch the outlines library to use greedy/deterministic sampling with OpenAI. This is temporary until the PR is merged.
+Alter the file `outlines/generate/json.py` and replace the `json_openai` function with the following:
+
+```python
+@json.register(OpenAI)
+def json_openai(
+    model, schema_object: Union[str, object, Callable], sampler: Sampler = multinomial()
+):
+    if not isinstance(sampler, (multinomial, greedy)):
+        raise NotImplementedError(
+            r"The OpenAI API does not support any other sampling algorithm "
+            + "than the multinomial and greedy samplers."
+        )
+
+    if isinstance(schema_object, type(BaseModel)):
+        schema = pyjson.dumps(schema_object.model_json_schema())
+    elif callable(schema_object):
+        schema = pyjson.dumps(get_schema_from_signature(schema_object))
+    elif isinstance(schema_object, str):
+        schema = schema_object
+    else:
+        raise ValueError(
+            f"Cannot parse schema {schema_object}. The schema must be either "
+            + "a Pydantic object, a function or a string that contains the JSON "
+            + "Schema specification"
+        )
+
+    # create copied, patched model with normalized json schema set
+    generator = model.new_with_replacements(
+        response_format={
+            "type": "json_schema",
+            "json_schema": {
+                "name": "default",
+                "strict": True,
+                "schema": pyjson.loads(schema),
+            },
+        },
+        # Get the information from the sampler
+        temperature=sampler.temperature if isinstance(sampler, multinomial) else 0.0,
+        top_p=sampler.top_p if isinstance(sampler, multinomial) else 1.0,
+    )
+
+    # set generators sequence post-processor
+    if isinstance(schema_object, type(BaseModel)):
+        generator.format_sequence = lambda x: schema_object.parse_raw(x)
+    elif callable(schema_object):
+        generator.format_sequence = lambda x: pyjson.loads(x)
+    elif isinstance(schema_object, str) or isinstance(schema_object, dict):
+        generator.format_sequence = lambda x: pyjson.loads(x)
+    else:
+        raise ValueError(
+            f"Cannot parse schema {schema_object}. The schema must be either "
+            + "a Pydantic object, a function or a string that contains the JSON "
+            + "Schema specification"
+        )
+
+    return generator
+```
+
 ### Usage
 
 ```python
