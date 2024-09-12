@@ -1,14 +1,15 @@
-import json
-import logging
-import sys
 from typing import List, Optional, Tuple
-from outlines.samplers import greedy
 
 import outlines
+from fense.evaluator import Evaluator
 from outlines import models
-from pydantic import BaseModel, conint, constr, ConfigDict
+from outlines.samplers import greedy
+from pydantic import BaseModel, ConfigDict, conint, constr
 
 _engine_cache = {}
+_evaluator = Evaluator(
+    device="cpu", sbert_model="paraphrase-mpnet-base-v2", echecker_model="echecker_clotho_audiocaps_tiny"
+)
 
 _CLAIRA_PROMPT = """\
 You are tasked with evaluating if a set of candidate captions accurately describes the same sound in a video clip as a reference set of captions. Start by assessing the accuracy and precision of how the audio characteristics are captured in the captions, scoring from 0 to 90 based on this aspect alone. After this initial assessment, you may add additional points (from 0 to 10) based on the quality of grammar and the detailed, reasonable descriptions present in the captions.
@@ -38,10 +39,10 @@ _RESPONSE_TYPE = CLAIRAResponse
 
 
 def clair_a(
-    candidates: List[str],
+    candidate: str,
     targets: List[str],
     model: str = "openai/gpt-4o-2024-08-06",
-    max_tokens: int = 1024,
+    epsilon: float = 0.0001,
 ) -> Tuple[float, Optional[str]]:
     # Compute the CLAIR-A score for a list of candidates and targets.
     global _engine_cache, _RESPONSE_TYPE  # noqa
@@ -65,22 +66,24 @@ def clair_a(
         generator = _engine_cache[model]
 
     # Format the canndidates and targets
-    candidate_statements = [f"- {c}\n" for c in candidates]
+    candidate_statements = [f"- {c}\n" for c in [candidate]]
     target_statements = [f"- {t}\n" for t in targets]
     formatted_prompt = _CLAIRA_PROMPT.format(
         candidate_statements="".join(candidate_statements),
         target_statements="".join(target_statements),
     )
 
-    response = generator(formatted_prompt, max_tokens=max_tokens)
+    response = generator(formatted_prompt)
 
-    return response.score / 100, response.reason
+    # Add the tiebreaking score
+    score, _, _ = _evaluator.sentence_score(candidate, targets, return_error_prob=True)
+    overall_score = (1 - epsilon) * (response.score / 100) + epsilon * score
+
+    return overall_score, response.reason
 
 
 if __name__ == "__main__":
-    candidates = [
-        "Rain is splashing on a surface while rustling occurs and a car door shuts, and traffic is discernible in the distance"
-    ]
+    candidate = "Rain is splashing on a surface while rustling occurs and a car door shuts, and traffic is discernible in the distance"
     references = [
         "Rain falls soft and steadily and a person closes a car door and walks away through leaves",
         "Rain falling followed by fabric rustling and footsteps shuffling then a vehicle door opening and closing as plastic crinkles",
@@ -88,5 +91,5 @@ if __name__ == "__main__":
         "Light rainfall together with rustling",
     ]
 
-    score = clair_a(candidates, references, model="openai/gpt-4o-2024-08-06")
+    score = clair_a(candidate, references, model="openai/gpt-4o-2024-08-06")
     print(score)

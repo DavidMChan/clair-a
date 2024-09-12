@@ -9,6 +9,7 @@ dependencies = [
     'tiktoken~=0.7',
     'transformers~=4.44',
     'outlines~=0.0.46',
+    'fense@git+https://github.com/blmoistawinde/fense.git',
 ]
 license = { file = "LICENSE" }
 requires-python = ">=3.10.0"

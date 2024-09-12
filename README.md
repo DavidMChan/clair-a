@@ -9,17 +9,21 @@ Code for the paper will be released soon.
 ### Setup
 
 ```bash
-# (Temporarily, for OpenAI Structured Generation, PR pending)
-pip install outlines@git+https://github.com/lapp0/outlines.git@openai-structured-generation
-
 # (Install the full library)
 pip install git+https://github.com/DavidMChan/clair-a.git
+
+# (Temporarily, for OpenAI Structured Generation, PR pending)
+pip install outlines@git+https://github.com/lapp0/outlines.git@openai-structured-generation
 ```
 
 Next, you need to patch the outlines library to use greedy/deterministic sampling with OpenAI. This is temporary until the PR is merged.
 Alter the file `outlines/generate/json.py` and replace the `json_openai` function with the following:
 
 ```python
+# Add a new import
+from outlines.samplers import greedy
+
+# Replace the function
 @json.register(OpenAI)
 def json_openai(
     model, schema_object: Union[str, object, Callable], sampler: Sampler = multinomial()
@@ -73,6 +77,13 @@ def json_openai(
         )
 
     return generator
+```
+
+Finally, you need to patch the fense library to load checkpoints in a non-strict way:
+
+```python
+# In fense/evaluator.py:31
+clf.load_state_dict(model_states['state_dict'], strict=False)
 ```
 
 ### Usage
