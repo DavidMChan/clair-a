@@ -2,8 +2,6 @@
 
 Official implementation of the paper: "CLAIR-A: Leveraging Large Language Models to Judge Audio Captions"
 
-Code for the paper will be released soon.
-
 ## Installation / Getting Started
 
 ### Setup
@@ -110,5 +108,10 @@ print(score)
 If you find this repository useful, please cite our paper:
 
 ```bibtex
-[To be updated]
+@article{wu2024clair,
+  title={CLAIR-A: Leveraging Large Language Models to Judge Audio Captions},
+  author={Wu, Tsung-Han and Gonzalez, Joseph E and Darrell, Trevor and Chan, David M},
+  journal={arXiv preprint arXiv:2409.12962},
+  year={2024}
+}
 ```
