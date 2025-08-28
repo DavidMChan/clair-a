@@ -1,15 +1,18 @@
-from typing import List, Optional, Tuple
+import random
+from typing import Annotated, List, Literal, Optional, Tuple, Union
 
-import outlines
-from fense.evaluator import Evaluator
-from outlines import models
-from outlines.samplers import greedy
+from openai import OpenAI
+from outlines.models.openai import from_openai as outlines_model_from_openai
+from outlines.models.transformers import from_transformers as outlines_model_from_transformers
 from pydantic import BaseModel, ConfigDict, conint, constr
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from fense.evaluator import Evaluator
+
+# Lazy initialize the FENSE evaluator and metrics
 _engine_cache = {}
-_evaluator = Evaluator(
-    device="cpu", sbert_model="paraphrase-mpnet-base-v2", echecker_model="echecker_clotho_audiocaps_tiny"
-)
+_fense_evaluator = None
+
 
 _CLAIRA_PROMPT = """\
 You are tasked with evaluating if a set of candidate captions accurately describes the same sound in a video clip as a reference set of captions. Start by assessing the accuracy and precision of how the audio characteristics are captured in the captions, scoring from 0 to 90 based on this aspect alone. After this initial assessment, you may add additional points (from 0 to 10) based on the quality of grammar and the detailed, reasonable descriptions present in the captions.
@@ -25,8 +28,8 @@ Combine these two aspects for a final evaluation score on a scale from 0 to 100,
 
 
 class CLAIRAResponse(BaseModel):
-    score: conint(ge=0, le=100)
-    reason: constr(max_length=1024)
+    score: Annotated[int, conint(ge=0, le=100)]
+    reason: Annotated[str, constr(max_length=1024)]
 
 
 class CLAIRAReponseOpenAI(BaseModel):
@@ -35,37 +38,46 @@ class CLAIRAReponseOpenAI(BaseModel):
     reason: str
 
 
-_RESPONSE_TYPE = CLAIRAResponse
+def _engine_from_cache(model: str) -> Tuple[callable, Union[type[CLAIRAResponse], type[CLAIRAReponseOpenAI]]]:
+    # Initialize the generator using outlines
+    if model not in _engine_cache:
+        if model.startswith("openai/"):
+            # Use new outlines API for OpenAI models
+            model_name = model[len("openai/") :]
+            client = OpenAI()  # Uses OPENAI_API_KEY environment variable
+            outlines_model = outlines_model_from_openai(client, model_name)
+            response_type = CLAIRAReponseOpenAI
+        elif model.startswith("transformers/"):
+            # Use new outlines API for transformers models
+            model_name = model[len("transformers/") :]
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            hf_model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto")
+            outlines_model = outlines_model_from_transformers(hf_model, tokenizer)
+            response_type = CLAIRAResponse
+        else:
+            raise ValueError(
+                f"Unknown model: {model} (Prefix openai models with 'openai/', transformers models with 'transformers/')"
+            )
+
+        _engine_cache[model] = (outlines_model, response_type)
+    else:
+        outlines_model, response_type = _engine_cache[model]
+
+    return outlines_model, response_type
 
 
 def clair_a(
     candidate: str,
     targets: List[str],
     model: str = "openai/gpt-4o-2024-08-06",
-    epsilon: float = 0.0001,
+    tiebreaking_epsilon: float = 0.0001,
+    tiebreaking_method: Union[Literal["fense"], Literal["random"]] = "fense",
 ) -> Tuple[float, Optional[str]]:
-    # Compute the CLAIR-A score for a list of candidates and targets.
-    global _engine_cache, _RESPONSE_TYPE  # noqa
 
-    # Initialize the generator using outlines
-    if model not in _engine_cache:
-        if model.startswith("openai/"):
-            outlines_model = models.openai(model[len("openai/") :])
-            _RESPONSE_TYPE = CLAIRAReponseOpenAI
-        elif model.startswith("transformers/"):
-            outlines_model = models.transformers(model[len("transformers/") :], device="cuda")
-        else:
-            raise ValueError(
-                f"Unknown model: {model} (Prefix openai models with 'openai/', transformers models with 'transformers/')"
-            )
+    # Get the outlines model
+    outlines_model, response_type = _engine_from_cache(model)
 
-        generator = outlines.generate.json(outlines_model, _RESPONSE_TYPE, sampler=greedy())
-
-        _engine_cache[model] = generator
-    else:
-        generator = _engine_cache[model]
-
-    # Format the canndidates and targets
+    # Format the candidates and targets
     candidate_statements = [f"- {c}\n" for c in [candidate]]
     target_statements = [f"- {t}\n" for t in targets]
     formatted_prompt = _CLAIRA_PROMPT.format(
@@ -73,11 +85,38 @@ def clair_a(
         target_statements="".join(target_statements),
     )
 
-    response = generator(formatted_prompt)
+    # Use new outlines API - call model directly with output_type
+    if model.startswith("openai/"):
+        response_json = outlines_model(formatted_prompt, response_type)
+    elif model.startswith("transformers/"):
+        response_json = outlines_model(formatted_prompt, response_type, max_new_tokens=1024)
+    else:
+        raise ValueError(
+            f"Incompatible model: {model} (Prefix openai models with 'openai/', transformers models with 'transformers/')"
+        )
+
+    # Parse the response using Pydantic if it's a JSON string
+    if isinstance(response_json, str):
+        response = response_type.model_validate_json(response_json)
+    elif isinstance(response_json, response_type):
+        # If it's already a Pydantic model instance
+        response = response_json
+    else:
+        raise ValueError(f"Unexpected response format: {response_json}")
 
     # Add the tiebreaking score
-    score, _, _ = _evaluator.sentence_score(candidate, targets, return_error_prob=True)
-    overall_score = (1 - epsilon) * (response.score / 100) + epsilon * score
+    if tiebreaking_method == "fense":
+        if _engine_cache.get("_fense_evaluator") is None:
+            _engine_cache["_fense_evaluator"] = Evaluator(
+                device="cpu", sbert_model="paraphrase-mpnet-base-v2", echecker_model="echecker_clotho_audiocaps_tiny"
+            )
+        tiebreaking_score, _, _ = _engine_cache["_fense_evaluator"].sentence_score(
+            candidate, targets, return_error_prob=True
+        )
+    elif tiebreaking_method == "random":
+        tiebreaking_score = random.uniform(0, 1)
+
+    overall_score = (response.score / 100) + tiebreaking_epsilon * tiebreaking_score
 
     return overall_score, response.reason
 
@@ -91,5 +130,6 @@ if __name__ == "__main__":
         "Light rainfall together with rustling",
     ]
 
-    score = clair_a(candidate, references, model="openai/gpt-4o-2024-08-06")
+    # score = clair_a(candidate, references, model="openai/gpt-4o-2024-08-06")
+    score = clair_a(candidate, references, model="transformers/microsoft/Phi-4-mini-instruct")
     print(score)

@@ -4,28 +4,32 @@ version = '0.0.1'
 description = 'A (surprisingly) simple domain-specific semantic text measure leveraging LLMs for audio-captioning evaluation.'
 authors = [{ name = 'David Chan', email = 'davidchan@berkeley.edu' }]
 dependencies = [
-    # Base dependencies
-    'openai~=1.44',
-    'tiktoken~=0.7',
-    'transformers~=4.44',
-    'outlines~=0.0.46',
-    'fense@git+https://github.com/blmoistawinde/fense.git',
+  # Base dependencies
+  'openai',
+  'tiktoken',
+  'transformers',
+  'outlines',
+  'requests',
+  'sentence-transformers',
+  'torch',
+  'numpy',
+  'tqdm',
 ]
 license = { file = "LICENSE" }
 requires-python = ">=3.10.0"
 readme = "README.md"
 keywords = ["language-models", "metric", "llm"]
 classifiers = [
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Development Status :: 3 - Alpha",
-    "Topic :: Scientific/Engineering :: Artificial Intelligence",
-    "Typing :: Typed",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Development Status :: 3 - Alpha",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Typing :: Typed",
 ]
 
 [project.optional-dependencies]
@@ -78,26 +82,26 @@ line-length = 120
 target-version = 'py38'
 select = ["E", "F", "I", "N", "UP", "PL", "NPY", "RUF", "C90"]
 exclude = [
-    ".bzr",
-    ".direnv",
-    ".eggs",
-    ".git",
-    ".hg",
-    ".mypy_cache",
-    ".nox",
-    ".pants.d",
-    ".pytype",
-    ".ruff_cache",
-    ".svn",
-    ".tox",
-    ".venv",
-    "__pypackages__",
-    "_build",
-    "buck-out",
-    "build",
-    "dist",
-    "node_modules",
-    "venv",
+  ".bzr",
+  ".direnv",
+  ".eggs",
+  ".git",
+  ".hg",
+  ".mypy_cache",
+  ".nox",
+  ".pants.d",
+  ".pytype",
+  ".ruff_cache",
+  ".svn",
+  ".tox",
+  ".venv",
+  "__pypackages__",
+  "_build",
+  "buck-out",
+  "build",
+  "dist",
+  "node_modules",
+  "venv",
 ]
 ignore = ["E501", "PLR0913", "N806", "N803", "N812", "N802"]
 
