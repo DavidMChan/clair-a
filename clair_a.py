@@ -130,6 +130,5 @@ if __name__ == "__main__":
         "Light rainfall together with rustling",
     ]
 
-    # score = clair_a(candidate, references, model="openai/gpt-4o-2024-08-06")
-    score = clair_a(candidate, references, model="transformers/microsoft/Phi-4-mini-instruct")
+    score = clair_a(candidate, references, model="openai/gpt-4o-2024-08-06")
     print(score)
